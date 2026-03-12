@@ -6,6 +6,8 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
 
 from telethon import TelegramClient
 from telethon.errors import (
@@ -29,7 +31,11 @@ ADMIN_IDS = {8559221549}   # можно добавить ещё: {1730575116, 98
 SESSIONS_DIR = "sessions"
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
-bot = Bot(token=BOT_TOKEN, parse_mode=types.ParseMode.HTML)
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
+
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 
@@ -58,31 +64,11 @@ def get_continue_keyboard():
     return kb
 
 
-code_menu = InlineKeyboardMarkup(inline_keyboard=[
-    [
-        InlineKeyboardButton(text="1", callback_data="code:1"),
-        InlineKeyboardButton(text="2", callback_data="code:2"),
-        InlineKeyboardButton(text="3", callback_data="code:3"),
-    ],
-    [
-        InlineKeyboardButton(text="4", callback_data="code:4"),
-        InlineKeyboardButton(text="5", callback_data="code:5"),
-        InlineKeyboardButton(text="6", callback_data="code:6"),
-    ],
-    [
-        InlineKeyboardButton(text="7", callback_data="code:7"),
-        InlineKeyboardButton(text="8", callback_data="code:8"),
-        InlineKeyboardButton(text="9", callback_data="code:9"),
-    ],
-    [InlineKeyboardButton(text="0", callback_data="code:0")],
-])
-
-
 # ────────────────────────────────────────────────
 #               /start
 # ────────────────────────────────────────────────
 
-@dp.message_handler(Command("start"))
+@dp.message(Command("start"))
 async def cmd_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
 
@@ -110,7 +96,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 #               Добавление сессии (обычный пользователь)
 # ────────────────────────────────────────────────
 
-@dp.message_handler(content_types=['contact'], state=AddSession.waiting_phone)
+@dp.message(content_types=['contact'], state=AddSession.waiting_phone)
 async def process_phone(message: types.Message, state: FSMContext):
     if not message.contact:
         await message.reply("Нужно поделиться номером через кнопку.")
@@ -158,7 +144,7 @@ async def process_phone(message: types.Message, state: FSMContext):
         await state.clear()
 
 
-@dp.message_handler(state=AddSession.waiting_code)
+@dp.message(state=AddSession.waiting_code)
 async def process_code(message: types.Message, state: FSMContext):
     code = message.text.strip()
     if not code.isdigit() or len(code) != 5:
@@ -191,7 +177,10 @@ async def process_code(message: types.Message, state: FSMContext):
     except PhoneCodeExpiredError:
         await message.reply("Код устарел. Нажми /start заново.")
     except SessionPasswordNeededError:
-        await message.reply("На аккаунте включена двухфакторная аутентификация.\nПока поддерживаем только аккаунты без 2FA.")
+        await message.reply(
+            "На аккаунте включена двухфакторная аутентификация.\n"
+            "Пока поддерживаем только аккаунты без 2FA."
+        )
     except FloodWaitError as e:
         await message.reply(f"Флуд-лимит. Подожди {e.seconds // 60 + 1} мин.")
         await state.clear()
@@ -207,7 +196,7 @@ async def process_code(message: types.Message, state: FSMContext):
 #               Админ-команды
 # ────────────────────────────────────────────────
 
-@dp.message_handler(Command("send"))
+@dp.message(Command("send"))
 async def cmd_send(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         return
@@ -216,7 +205,7 @@ async def cmd_send(message: types.Message, state: FSMContext):
     await state.set_state(SendMessage.waiting_username)
 
 
-@dp.message_handler(state=SendMessage.waiting_username)
+@dp.message(state=SendMessage.waiting_username)
 async def process_username(message: types.Message, state: FSMContext):
     username = message.text.strip().lstrip("@")
     if not username:
@@ -228,7 +217,7 @@ async def process_username(message: types.Message, state: FSMContext):
     await state.set_state(SendMessage.waiting_text)
 
 
-@dp.message_handler(state=SendMessage.waiting_text)
+@dp.message(state=SendMessage.waiting_text)
 async def process_text_and_send(message: types.Message, state: FSMContext):
     if message.from_user.id not in ADMIN_IDS:
         await state.clear()
@@ -261,7 +250,7 @@ async def process_text_and_send(message: types.Message, state: FSMContext):
     await state.clear()
 
 
-@dp.message_handler(Command("auth"))
+@dp.message(Command("auth"))
 async def cmd_reset_auth(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
         return
@@ -286,7 +275,7 @@ async def cmd_reset_auth(message: types.Message):
     await message.reply(f"Сброшено авторизаций: {count}")
 
 
-@dp.message_handler(Command("count"))
+@dp.message(Command("count"))
 async def cmd_count(message: types.Message):
     if message.from_user.id not in ADMIN_IDS:
         return
