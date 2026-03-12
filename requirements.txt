@@ -1,3 +1,2 @@
-aiogram>=3.10,<3.99
-telethon>=1.40
-aiosqlite>=0.20  # если хочешь базу
+aiogram==3.13.*
+telethon==1.37.*
