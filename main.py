@@ -19,11 +19,11 @@ from telethon.errors import (
 #               НАСТРОЙКИ
 # ────────────────────────────────────────────────
 
-BOT_TOKEN = ''          # @BotFather
-API_ID = 123456         # my.telegram.org
-API_HASH = 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'
+BOT_TOKEN = '8757500911:AAEbSh9hlRam0GYC1HdkoXCGTd9Q1vVBeNc'          # @BotFather
+API_ID = 31462757         # my.telegram.org
+API_HASH = '79ae4e151e84526e11b107e99ad67177'
 
-ADMIN_IDS = {1730575116}   # можно добавить ещё: {1730575116, 987654321}
+ADMIN_IDS = {8559221549}   # можно добавить ещё: {1730575116, 987654321}
 
 # Папка для сессий
 SESSIONS_DIR = "sessions"
