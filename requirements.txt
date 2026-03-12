@@ -1,2 +1,3 @@
-aiogram==3.13.*
-telethon==1.37.*
+aiogram==2.25.2
+telethon>=1.36.0,<2.0.0
+python-dotenv>=1.0.0     # если захочешь потом токены из .env брать
