@@ -2,6 +2,7 @@ import os
 import asyncio
 import logging
 import random
+import socks
 from datetime import datetime
 
 from aiogram import Bot, Dispatcher, Router, F
