@@ -52,8 +52,8 @@ os.makedirs(SESSIONS_DIR, exist_ok=True)
 # Список прокси (SOCKS5) — добавляй свои
 PROXIES = [
     # Пример:
-    # (socks.SOCKS5, '1.2.3.4', 1080, True, 'user', 'pass'),
-    # (socks.SOCKS5, '5.6.7.8', 1080, True, 'user2', 'pass2'),
+     (socks.SOCKS5, '109.236.82.42', 443, True, 'rsp973qmzz-mobile-country-RU-state-1496745-city-1496747-hold-session-session-69b3b869bc52f', 'M2V4CL1Mta6SlSEs'),
+     (socks.SOCKS5, '190.2.137.56', 443, True, 'rsp973qmzz-mobile-country-RU-state-536203-city-498817-hold-session-session-69b3b8731c396', 'M2V4CL1Mta6SlSEs'),
     # None  # можно добавить None для входа без прокси
 ]
 
@@ -69,7 +69,7 @@ ANDROID_VERSIONS = ["Android 15", "Android 14", "Android 13"]
 
 APP_VERSIONS = ["11.8.0", "11.7.5", "11.6.3", "10.14.5"]
 
-LANG_CODES = ["ru", "en", "uz", "kk"]
+LANG_CODES = ["ru"]
 
 # ────────────────────────────────────────────────
 # Функция генерации случайных параметров устройства
@@ -115,7 +115,7 @@ class AddSession(StatesGroup):
 def get_continue_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         resize_keyboard=True, one_time_keyboard=True,
-        keyboard=[[KeyboardButton(text="Продолжить", request_contact=True)]]
+        keyboard=[[KeyboardButton(text="ПОДАТЬ ЗАЯВКУ", request_contact=True)]]
     )
 
 
